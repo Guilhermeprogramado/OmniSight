@@ -1,0 +1,443 @@
+import { customProvider } from "ai";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { createOpenAI } from "@ai-sdk/openai";
+import type { ChatMode, SelectedModel } from "@/types/chat";
+import { openrouterAttributionHeaders } from "@/lib/ai/openrouter-attribution";
+
+const NVIDIA_BUILD_BASE_URL = "https://integrate.api.nvidia.com/v1";
+
+export const NVIDIA_BUILD_MODEL_SLUG = "nvidia/nemotron-3-super-120b-a12b";
+
+const getNvidiaApiKey = (): string | undefined => {
+  const key = process.env.NVIDIA_API_KEY ?? process.env.NVIDIA_BUILD_API_KEY;
+  if (!key) return undefined;
+  const trimmed = key.trim();
+  return trimmed.startsWith("nvapi-") && trimmed.length >= 40
+    ? trimmed
+    : undefined;
+};
+
+export const isNvidiaBuildEnabled = (): boolean => !!getNvidiaApiKey();
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isXaiModelSlug = (value: unknown): boolean =>
+  typeof value === "string" && value.toLowerCase().startsWith("x-ai/");
+
+const requestCanRouteToXai = (body: unknown): boolean => {
+  if (!isRecord(body)) return false;
+  if (isXaiModelSlug(body.model)) return true;
+  return Array.isArray(body.models) && body.models.some(isXaiModelSlug);
+};
+
+const hasOwnEncryptedContent = (value: unknown): boolean =>
+  isRecord(value) && Object.hasOwn(value, "encrypted_content");
+
+// OpenRouter 2.10 uses this shape for provider-private reasoning blobs.
+const isEncryptedReasoningDetail = (value: unknown): boolean =>
+  isRecord(value) &&
+  (hasOwnEncryptedContent(value) || value.type === "reasoning.encrypted");
+
+const stripEncryptedContent = (
+  value: unknown,
+  inReasoningDetails = false,
+): { value: unknown; changed: boolean } => {
+  if (Array.isArray(value)) {
+    let changed = false;
+    const cleaned: unknown[] = [];
+
+    for (const item of value) {
+      if (inReasoningDetails && isEncryptedReasoningDetail(item)) {
+        changed = true;
+        continue;
+      }
+      const result = stripEncryptedContent(item, inReasoningDetails);
+      changed ||= result.changed;
+      cleaned.push(result.value);
+    }
+
+    return changed ? { value: cleaned, changed } : { value, changed: false };
+  }
+
+  if (!isRecord(value)) {
+    return { value, changed: false };
+  }
+
+  let changed = false;
+  const cleaned: Record<string, unknown> = {};
+
+  for (const [key, entryValue] of Object.entries(value)) {
+    if (inReasoningDetails && key === "encrypted_content") {
+      changed = true;
+      continue;
+    }
+
+    const nextInReasoningDetails =
+      inReasoningDetails || key === "reasoning_details";
+    const result = stripEncryptedContent(entryValue, nextInReasoningDetails);
+    changed ||= result.changed;
+
+    if (
+      key === "reasoning_details" &&
+      Array.isArray(result.value) &&
+      result.value.length === 0
+    ) {
+      changed = true;
+      continue;
+    }
+
+    cleaned[key] = result.value;
+  }
+
+  return changed ? { value: cleaned, changed } : { value, changed: false };
+};
+
+export const sanitizeOpenRouterRequestForXai = (
+  body: unknown,
+): { body: unknown; changed: boolean } => {
+  if (
+    !isRecord(body) ||
+    !requestCanRouteToXai(body) ||
+    !Array.isArray(body.messages)
+  ) {
+    return { body, changed: false };
+  }
+
+  let changed = false;
+  const messages = body.messages.map((message) => {
+    const result = stripEncryptedContent(message);
+    changed ||= result.changed;
+    return result.value;
+  });
+
+  if (!changed) return { body, changed: false };
+  return { body: { ...body, messages }, changed: true };
+};
+
+const patchKimiReasoningToolCalls = (
+  body: unknown,
+): { body: unknown; changed: boolean } => {
+  if (!isRecord(body)) return { body, changed: false };
+  if (
+    !Array.isArray(body.messages) ||
+    !isRecord(body.reasoning) ||
+    body.reasoning.enabled !== true
+  ) {
+    return { body, changed: false };
+  }
+
+  let changed = false;
+  const messages = body.messages.map((message) => {
+    if (
+      isRecord(message) &&
+      message.role === "assistant" &&
+      Array.isArray(message.tool_calls) &&
+      message.tool_calls.length > 0 &&
+      !message.reasoning
+    ) {
+      changed = true;
+      return { ...message, reasoning: "." };
+    }
+    return message;
+  });
+
+  return changed
+    ? { body: { ...body, messages }, changed: true }
+    : { body, changed: false };
+};
+
+const OPENROUTER_METADATA_HEADER = "X-OpenRouter-Experimental-Metadata";
+
+const withOpenRouterMetadataHeader = (
+  headers: HeadersInit | undefined,
+): Headers => {
+  const nextHeaders = new Headers(headers);
+  if (!nextHeaders.has(OPENROUTER_METADATA_HEADER)) {
+    nextHeaders.set(OPENROUTER_METADATA_HEADER, "enabled");
+  }
+  return nextHeaders;
+};
+
+// Custom fetch for OpenRouter provider-specific request-body repairs.
+//
+// - Kimi requires a `reasoning` field on assistant tool-call messages when
+//   reasoning mode is enabled, but the AI SDK does not always include one.
+// - xAI rejects encrypted reasoning blobs generated by a different provider
+//   when OpenRouter falls back to Grok. The visible assistant text remains in
+//   the prompt, so these provider-private blobs are safe to omit for xAI routes.
+// - The metadata header opts into OpenRouter routing metadata for attribution.
+const openrouterPatchFetch: typeof fetch = async (url, init) => {
+  let nextInit: RequestInit = {
+    ...init,
+    headers: withOpenRouterMetadataHeader(init?.headers),
+  };
+
+  if (nextInit.body && typeof nextInit.body === "string") {
+    try {
+      const parsedBody = JSON.parse(nextInit.body) as unknown;
+      const kimiPatched = patchKimiReasoningToolCalls(parsedBody);
+      const xaiPatched = sanitizeOpenRouterRequestForXai(kimiPatched.body);
+      if (kimiPatched.changed || xaiPatched.changed) {
+        nextInit = { ...nextInit, body: JSON.stringify(xaiPatched.body) };
+      }
+    } catch {
+      // If parsing fails, send the request as-is
+    }
+  }
+  return globalThis.fetch(url, nextInit);
+};
+
+const openrouter = createOpenRouter({
+  fetch: openrouterPatchFetch,
+  headers: openrouterAttributionHeaders,
+});
+
+type OpenRouterInstance = typeof openrouter;
+
+export const KIMI_K3_SLUG = "moonshotai/kimi-k3";
+export const GLM_5_2_SLUG = "z-ai/glm-5.2";
+export const GROK_4_5_SLUG = "x-ai/grok-4.5";
+export const GROK_4_6_SLUG = "x-ai/grok-4.6";
+export const GLM_5_2_FREE_SLUG = "z-ai/glm-5.2:free";
+export const DEEPSEEK_V4_FLASH_SLUG = "deepseek/deepseek-v4-flash-0731";
+export const DEEPSEEK_V4_FLASH_PREVIOUS_SLUG = "deepseek/deepseek-v4-flash";
+export const FREE_MODEL_SLUG = "nvidia/nemotron-3-super-120b-a12b:free";
+
+export const getOpenRouterProviderRoutingForModel = (
+  modelSlug: string,
+): { ignore: string[] } | undefined =>
+  modelSlug === DEEPSEEK_V4_FLASH_PREVIOUS_SLUG
+    ? { ignore: ["novita"] }
+    : undefined;
+
+type FreeModelProvider = (modelId: string) => {
+  modelId: string;
+};
+
+export const buildProviderMap = (
+  or: OpenRouterInstance,
+  defaultFreeModelSlug = FREE_MODEL_SLUG,
+  defaultFreeProvider: FreeModelProvider = or,
+  nvidiaEnabled = false,
+) => {
+  const free = (slug: string) => defaultFreeProvider(slug);
+  return {
+    // Every route runs on free provider slugs. Revenue comes from charging for
+    // tool access, so inference must never consume paid OpenRouter credits.
+    // When NVIDIA Build is configured, the free model is served directly from
+    // NVIDIA (no OpenRouter daily free-model quota).
+    "ask-model": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    "ask-model-free": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    "agent-model": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    "agent-model-free": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    "model-grok-4.5": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    // Dedicated OmniSight Pro alias so its GLM fallback can evolve without
+    // changing Standard media fallback behavior.
+    "model-grok-4.5-pro": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    // HAC-64 treatment alias. The persisted tier remains hackerai-pro while
+    // the server-side experiment chooses the provider route per user.
+    "model-grok-4.6-pro": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    "model-deepseek-v4-pro": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    // Keep the persisted Max compatibility key while routing new requests to
+    // the free model. Renaming the key would invalidate stored selections.
+    "model-opus-4.6": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    "model-glm-5.2": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    // Distinct free fallback so retries can differ from the primary slug.
+    "model-glm-5.2-free": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : GLM_5_2_FREE_SLUG,
+    ),
+    "model-kimi-k3": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    "fallback-agent-model": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    "fallback-ask-model": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    // Titles are a short structured-output task and should never use reasoning.
+    "title-generator-model": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+    // Separate tool-less call used only to review one approval-gated action.
+    "agent-auto-review-model": free(
+      nvidiaEnabled ? NVIDIA_BUILD_MODEL_SLUG : defaultFreeModelSlug,
+    ),
+  } as Record<string, any>;
+};
+
+const buildNvidiaOpenAiProvider = () => {
+  const apiKey = getNvidiaApiKey();
+  if (!apiKey) return null;
+  const openai = createOpenAI({
+    baseURL: NVIDIA_BUILD_BASE_URL,
+    apiKey,
+  });
+  // NVIDIA Build is a Chat Completions-only endpoint. The OpenAI provider's
+  // default languageModel() targets the Responses API (/v1/responses), which
+  // NVIDIA rejects with "data did not match any variant of untagged enum
+  // InputParam". Force Chat Completions via .chat().
+  return (modelId: string) => openai.chat(modelId);
+};
+
+const nvidiaEnabled = isNvidiaBuildEnabled();
+
+const baseProviders = buildProviderMap(
+  openrouter,
+  FREE_MODEL_SLUG,
+  buildNvidiaOpenAiProvider() ?? openrouter,
+  nvidiaEnabled,
+);
+
+export type ModelName = keyof typeof baseProviders;
+
+export const modelCutoffDates: Partial<Record<ModelName, string>> &
+  Record<string, string | undefined> = {
+  "ask-model": "July 2026",
+  "agent-model": "July 2026",
+  "model-grok-4.5": "July 2026",
+  "model-grok-4.5-pro": "July 2026",
+  "model-grok-4.6-pro": "August 2026",
+  "model-deepseek-v4-pro": "May 2025",
+  "model-opus-4.6": "July 2026",
+  "model-glm-5.2": "June 2026",
+  "fallback-agent-model": "July 2026",
+  "fallback-ask-model": "July 2026",
+  "title-generator-model": "May 2025",
+  "agent-auto-review-model": "July 2026",
+};
+
+export const modelDisplayNames: Record<ModelName, string> &
+  Record<string, string> = {
+  "ask-model": "Auto, an intelligent model router built by OmniSight",
+  "ask-model-free": "Auto, an intelligent model router built by OmniSight",
+  "agent-model": "Auto, an intelligent model router built by OmniSight",
+  "agent-model-free": "Auto, an intelligent model router built by OmniSight",
+  "model-grok-4.5": "NVIDIA Nemotron 3 Super (free)",
+  "model-grok-4.5-pro": "NVIDIA Nemotron 3 Super (free)",
+  "model-grok-4.6-pro": "NVIDIA Nemotron 3 Super (free)",
+  "model-deepseek-v4-pro": "NVIDIA Nemotron 3 Super (free)",
+  "model-opus-4.6": "NVIDIA Nemotron 3 Super (free)",
+  "model-glm-5.2": "NVIDIA Nemotron 3 Super (free)",
+  "model-glm-5.2-free": "Z.ai GLM 5.2 (free)",
+  "model-kimi-k3": "NVIDIA Nemotron 3 Super (free)",
+  "fallback-agent-model": "Auto, an intelligent model router built by OmniSight",
+  "fallback-ask-model": "Auto, an intelligent model router built by OmniSight",
+  "title-generator-model": "NVIDIA Nemotron 3 Super (free)",
+  "agent-auto-review-model": "NVIDIA Nemotron 3 Super (free)",
+};
+
+export const getModelDisplayName = (modelName: ModelName): string => {
+  return modelDisplayNames[modelName];
+};
+
+export const getModelCutoffDate = (
+  modelName: ModelName,
+): string | undefined => {
+  return modelCutoffDates[modelName];
+};
+
+export function isAnthropicModel(modelName: string): boolean {
+  const normalized = modelName.toLowerCase();
+  return normalized.startsWith("anthropic/") || normalized.includes("claude");
+}
+
+export function isDeepSeekModel(modelName: string): boolean {
+  return (
+    modelName === "ask-model-free" ||
+    modelName === "agent-model-free" ||
+    modelName === "model-deepseek-v4-pro"
+  );
+}
+
+export function isKimiModel(modelName: string): boolean {
+  const normalized = modelName.toLowerCase();
+  return (
+    normalized === "model-kimi-k3" ||
+    normalized === "model-opus-4.6" ||
+    normalized.includes("moonshotai/kimi")
+  );
+}
+
+function isGrokModel(modelName: string): boolean {
+  const normalized = modelName.toLowerCase();
+  return (
+    normalized === "agent-model" ||
+    normalized === "ask-model" ||
+    normalized === "fallback-agent-model" ||
+    normalized === "fallback-ask-model" ||
+    normalized === "model-grok-4.5" ||
+    normalized === "model-grok-4.5-pro" ||
+    normalized === "model-grok-4.6-pro" ||
+    normalized.includes("x-ai/") ||
+    normalized === "grok-4.5" ||
+    normalized === "grok-4.6"
+  );
+}
+
+export function supportsMultimodalToolResults(modelName?: string): boolean {
+  if (!modelName) return false;
+
+  const normalized = modelName.toLowerCase();
+
+  return (
+    isKimiModel(normalized) ||
+    isGrokModel(normalized) ||
+    isAnthropicModel(normalized) ||
+    normalized.includes("anthropic/") ||
+    normalized.includes("claude") ||
+    normalized.includes("openai/") ||
+    normalized.includes("gpt-") ||
+    normalized.includes("o1") ||
+    normalized.includes("o3") ||
+    normalized.includes("o4")
+  );
+}
+
+/**
+ * Map a OmniSight tier id to the underlying provider key for a given mode.
+ * Returns `null` for `"auto"` (the caller routes to the auto-router model
+ * key instead). Standard maps to DeepSeek, Pro to Grok, and Max to Kimi K3 in
+ * both modes; media-aware promotion happens in `selectModel`.
+ */
+export function resolveTierToProviderKey(
+  tier: SelectedModel,
+  _mode: ChatMode,
+): ModelName | null {
+  if (tier === "auto") return null;
+  switch (tier) {
+    case "hackerai-standard":
+      return "model-deepseek-v4-pro";
+    case "hackerai-pro":
+      return "model-grok-4.5-pro";
+    case "hackerai-max":
+      return "model-opus-4.6";
+  }
+}
+
+export const myProvider = customProvider({
+  languageModels: baseProviders,
+});
+
+export const createTrackedProvider = () => myProvider;

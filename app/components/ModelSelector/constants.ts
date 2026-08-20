@@ -1,0 +1,62 @@
+import type { ChatMode, SelectedModel } from "@/types/chat";
+import { isAgentMode } from "@/lib/utils/mode-helpers";
+
+export interface ModelOption {
+  id: SelectedModel;
+  label: string;
+  /** Short tagline shown in the hover popup (e.g. "Maximum intelligence for complex work") */
+  description?: string;
+  /** "Powered by …" line shown beneath the description in the hover popup */
+  poweredBy?: string;
+  thinking?: boolean;
+}
+
+export const ASK_MODEL_OPTIONS: ModelOption[] = [
+  {
+    id: "hackerai-standard",
+    label: "OmniSight Standard",
+    description: "Reliable performance for everyday tasks",
+    poweredBy: "DeepSeek V4 Pro · xAI Grok 4.5 for vision",
+  },
+  {
+    id: "hackerai-pro",
+    label: "OmniSight Pro",
+    description: "Superior performance for most assignments",
+    poweredBy: "xAI Grok 4.5",
+  },
+  {
+    id: "hackerai-max",
+    label: "OmniSight Max",
+    description: "Maximum intelligence for complex work",
+    poweredBy: "Moonshot Kimi K3",
+  },
+];
+
+export const AGENT_MODEL_OPTIONS: ModelOption[] = [
+  {
+    id: "hackerai-standard",
+    label: "OmniSight Standard",
+    description: "Reliable agent for everyday automation",
+    poweredBy: "DeepSeek V4 Pro · xAI Grok 4.5 for vision",
+    thinking: true,
+  },
+  {
+    id: "hackerai-pro",
+    label: "OmniSight Pro",
+    description: "Superior performance for most assignments",
+    poweredBy: "xAI Grok 4.5",
+    thinking: true,
+  },
+  {
+    id: "hackerai-max",
+    label: "OmniSight Max",
+    description: "Maximum intelligence for complex work",
+    poweredBy: "Moonshot Kimi K3",
+    thinking: true,
+  },
+];
+
+export const getDefaultModelForMode = (mode: ChatMode): SelectedModel => {
+  const options = isAgentMode(mode) ? AGENT_MODEL_OPTIONS : ASK_MODEL_OPTIONS;
+  return options[0].id;
+};

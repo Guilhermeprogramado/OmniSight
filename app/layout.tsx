@@ -1,0 +1,160 @@
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import { headers } from "next/headers";
+import { withAuth } from "@workos-inc/authkit-nextjs";
+import "./globals.css";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
+import { GlobalStateProvider } from "./contexts/GlobalState";
+import { AgentAutoReviewAvailabilityProvider } from "./contexts/AgentAutoReviewAvailabilityContext";
+import { ConvexClientProvider } from "@/components/ConvexClientProvider";
+import { TodoBlockProvider } from "./contexts/TodoBlockContext";
+import { AgentApprovalProvider } from "./contexts/AgentApprovalContext";
+import { PostHogProvider } from "./providers";
+import { DataStreamProvider } from "./components/DataStreamProvider";
+import { ChunkLoadRecovery } from "./components/ChunkLoadRecovery";
+import { resolveClientInitialAuth } from "@/lib/auth/initial-auth";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+const APP_NAME = "OmniSight";
+const APP_DEFAULT_TITLE = "OmniSight - AI-Powered Penetration Testing Assistant";
+const APP_TITLE_TEMPLATE = "%s | OmniSight";
+const APP_DESCRIPTION =
+  "OmniSight is an AI pentesting assistant that helps you scan targets, exploit vulnerabilities, analyze findings, and write reports faster.";
+
+export const metadata: Metadata = {
+  applicationName: APP_NAME,
+  title: {
+    default: APP_DEFAULT_TITLE,
+    template: "%s",
+  },
+  description: APP_DESCRIPTION,
+  manifest: "/manifest.json",
+  keywords: [
+    "omnisight",
+    "pentestgpt",
+    "omnisight ai",
+    "pentest ai",
+    "penetration testing tool",
+    "penetration testing ai",
+    "hacking ai",
+    "pentesting ai",
+    "pentest automation",
+    "security assessment ai",
+    "vulnerability scanner ai",
+    "offensive security ai",
+    "red team ai",
+    "cybersecurity ai assistant",
+    "bug bounty ai",
+    "pentest gpt",
+    "security ai",
+  ],
+  openGraph: {
+    type: "website",
+    siteName: APP_NAME,
+    title: {
+      default: APP_DEFAULT_TITLE,
+      template: APP_TITLE_TEMPLATE,
+    },
+    description: APP_DESCRIPTION,
+    images: [
+      {
+        url: "https://hackerai.co/icon-512x512.png",
+        width: 512,
+        height: 512,
+        alt: "OmniSight",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary",
+    title: {
+      default: APP_DEFAULT_TITLE,
+      template: APP_TITLE_TEMPLATE,
+    },
+    description: APP_DESCRIPTION,
+    images: [
+      {
+        url: "https://hackerai.co/icon-512x512.png",
+        width: 512,
+        height: 512,
+        alt: "OmniSight",
+      },
+    ],
+  },
+};
+
+async function getInitialAuth() {
+  const requestHeaders = await headers();
+
+  // Static public pages are prerendered without proxy-injected AuthKit headers.
+  if (!requestHeaders.has("x-workos-middleware")) {
+    return { user: null } as const;
+  }
+
+  // Never serialize the server-only access token into the client provider.
+  // An ended refresh session is equivalent to being signed out; hydrating that
+  // state keeps the root layout available so the user can sign in again.
+  return resolveClientInitialAuth(withAuth);
+}
+
+export default async function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  // Supplying server-resolved auth prevents AuthKitProvider from invoking its
+  // getAuth Server Action on every mount.
+  const initialAuth = await getInitialAuth();
+
+  const content = (
+    <GlobalStateProvider>
+      <AgentAutoReviewAvailabilityProvider>
+        <PostHogProvider>
+          <ChunkLoadRecovery />
+          <DataStreamProvider>
+            <TodoBlockProvider>
+              <AgentApprovalProvider>
+                <TooltipProvider>
+                  {children}
+                  <Toaster />
+                </TooltipProvider>
+              </AgentApprovalProvider>
+            </TodoBlockProvider>
+          </DataStreamProvider>
+        </PostHogProvider>
+      </AgentAutoReviewAvailabilityProvider>
+    </GlobalStateProvider>
+  );
+
+  return (
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable} dark h-full`}
+      suppressHydrationWarning
+    >
+      <head>
+        <meta
+          name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover"
+        />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+      </head>
+      <body className="antialiased h-full">
+        <ConvexClientProvider initialAuth={initialAuth}>
+          {content}
+        </ConvexClientProvider>
+      </body>
+    </html>
+  );
+}
