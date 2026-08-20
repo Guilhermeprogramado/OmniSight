@@ -352,7 +352,7 @@ export default function TrustPage() {
               <p>
                 OmniSight is developed in the open. The full application source
                 code is public on{" "}
-                <InlineLink href="https://github.com/hackerai-tech/hackerai">
+                <InlineLink href="https://github.com/Guilhermeprogramado/OmniSight">
                   GitHub
                 </InlineLink>
                 , including every change we ship. You can review how prompts,

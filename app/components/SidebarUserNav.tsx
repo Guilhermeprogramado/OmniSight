@@ -244,7 +244,7 @@ const SidebarUserNav = ({ isCollapsed = false }: { isCollapsed?: boolean }) => {
 
   const handleGitHub = () => {
     const newWindow = window.open(
-      "https://github.com/hackerai-tech/hackerai",
+      "https://github.com/Guilhermeprogramado/OmniSight",
       "_blank",
       "noopener,noreferrer",
     );

@@ -2,7 +2,7 @@ FROM kalilinux/kali-rolling
 
 LABEL org.opencontainers.image.title="OmniSight Agent Sandbox"
 LABEL org.opencontainers.image.description="AI Agent Penetration Testing Environment with Comprehensive Automated Tools"
-LABEL org.opencontainers.image.source="https://github.com/hackerai-tech/hackerai"
+LABEL org.opencontainers.image.source="https://github.com/Guilhermeprogramado/OmniSight"
 LABEL org.opencontainers.image.vendor="OmniSight"
 
 # ============================================================================

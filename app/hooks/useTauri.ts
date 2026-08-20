@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { hasAuthenticatedBefore } from "@/lib/utils/client-storage";
 
 export const DESKTOP_UPDATE_URL =
-  "https://github.com/hackerai-tech/hackerai/releases/latest";
+  "https://github.com/Guilhermeprogramado/OmniSight/releases/latest";
 
 declare global {
   interface Window {

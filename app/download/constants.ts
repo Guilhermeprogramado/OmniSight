@@ -1,5 +1,5 @@
 const GITHUB_RELEASE_BASE =
-  "https://github.com/hackerai-tech/hackerai/releases/latest/download";
+  "https://github.com/Guilhermeprogramado/OmniSight/releases/latest/download";
 
 export const downloadLinks = {
   macos: `${GITHUB_RELEASE_BASE}/OmniSight-universal.dmg`,
