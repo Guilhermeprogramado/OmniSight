@@ -1818,7 +1818,7 @@ mod tests {
 
     fn unique_test_dir(label: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
-            "hackerai-desktop-{}-{}",
+            "omnisight-desktop-{}-{}",
             label,
             uuid::Uuid::new_v4().simple()
         ))

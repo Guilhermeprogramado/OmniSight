@@ -1751,37 +1751,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hackerai-desktop"
-version = "0.0.0"
-dependencies = [
- "base64 0.22.1",
- "cap-fs-ext",
- "cap-std",
- "env_logger",
- "libc",
- "log",
- "objc2 0.5.2",
- "objc2-web-kit 0.2.2",
- "portable-pty",
- "reqwest 0.12.26",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-deep-link",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-os",
- "tauri-plugin-process",
- "tauri-plugin-shell",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3038,6 +3007,37 @@ dependencies = [
  "objc2-app-kit 0.3.2",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "omnisight-desktop"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "cap-fs-ext",
+ "cap-std",
+ "env_logger",
+ "libc",
+ "log",
+ "objc2 0.5.2",
+ "objc2-web-kit 0.2.2",
+ "portable-pty",
+ "reqwest 0.12.26",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-deep-link",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-os",
+ "tauri-plugin-process",
+ "tauri-plugin-shell",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]

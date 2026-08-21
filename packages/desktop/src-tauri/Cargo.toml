@@ -1,17 +1,17 @@
 [package]
-name = "hackerai-desktop"
-version = "0.0.0"
+name = "omnisight-desktop"
+version = "0.0.60"
 description = "OmniSight Desktop Application"
 authors = ["OmniSight"]
 edition = "2021"
 rust-version = "1.78"
 
 [lib]
-name = "hackerai_desktop_lib"
+name = "omnisight_desktop_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [[bin]]
-name = "hackerai-desktop"
+name = "omnisight-desktop"
 path = "src/main.rs"
 
 [build-dependencies]
