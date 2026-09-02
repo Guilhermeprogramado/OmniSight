@@ -3,7 +3,7 @@
 import { useChat, type UseChatHelpers } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import dynamic from "next/dynamic";
-import {
+import React, {
   useRef,
   useEffect,
   useLayoutEffect,
@@ -94,7 +94,6 @@ import { coerceSelectedModel } from "@/types/chat";
 import { v4 as uuidv4 } from "uuid";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useRouter } from "next/navigation";
-import { ConvexErrorBoundary } from "./ConvexErrorBoundary";
 import { useAutoResume } from "../hooks/useAutoResume";
 import { useAutoContinue } from "../hooks/useAutoContinue";
 import { findLatestTimelineAnchorMessageId } from "./message-timeline-rows";
@@ -1889,7 +1888,7 @@ export const Chat = ({ autoResume }: { autoResume: boolean }) => {
     ?.branched_from_title;
 
   return (
-    <ConvexErrorBoundary>
+    <React.Fragment>
       <StreamEffects
         key={chatId}
         chatId={chatId}
@@ -2097,6 +2096,6 @@ export const Chat = ({ autoResume }: { autoResume: boolean }) => {
           </div>
         )}
       </div>
-    </ConvexErrorBoundary>
+    </React.Fragment>
   );
 };

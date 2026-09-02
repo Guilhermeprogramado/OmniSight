@@ -28,7 +28,7 @@ export const CodeActionButtons: React.FC<CodeActionButtonsProps> = ({
   isWrapped,
   onToggleWrap,
   variant = "codeblock",
-  showDownload = true,
+  showDownload = false,
   showCopy = true,
   showWrap = true,
 }) => {
