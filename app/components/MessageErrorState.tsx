@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { MemoizedMarkdown } from "./MemoizedMarkdown";
 import {
@@ -106,6 +107,21 @@ export const MessageErrorState = ({
     !isProviderContentBlocked &&
     !!onReconnect &&
     isNetworkStreamError(displayError);
+
+  const router = useRouter();
+  // Auto-redirect free Ask limit to pricing page instead of error log
+  useEffect(() => {
+    if (capReason === "free_ask_reports_exhausted") {
+      redirectToPricing({
+        surface: "message_error_state",
+        source: "ask_report_limit",
+        from_tier: subscription,
+        reason: capReason,
+        limit_type: limitType,
+        cta_text: "Upgrade Plan",
+      });
+    }
+  }, [capReason, limitType, subscription]);
 
   const isPaidUser = subscription !== "free";
   const canUpgrade = shouldShowUpgradeCta({ subscription, capReason });
