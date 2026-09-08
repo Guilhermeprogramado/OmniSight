@@ -41,6 +41,7 @@ const UNAUTHENTICATED_PATHS = new Set([
   "/trust",
   "/download",
   "/manifest.json",
+  "/calculadora-fii",
 ]);
 
 function getRedirectUri(): string | undefined {
