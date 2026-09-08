@@ -108,8 +108,12 @@ export const MessageErrorState = ({
     !!onReconnect &&
     isNetworkStreamError(displayError);
 
+  const isPaidUser = subscription !== "free";
+  const canUpgrade = shouldShowUpgradeCta({ subscription, capReason });
+  const extraUsageCta = getExtraUsageLimitCta({ subscription, capReason });
+  const limitType = getLimitTypeForCapReason(capReason);
   const router = useRouter();
-  // Auto-redirect free Ask limit to pricing page instead of error log
+  // Auto-redirect free Ask limit to pricing page instead of error log — sem alterar estrutura Admin
   useEffect(() => {
     if (capReason === "free_ask_reports_exhausted") {
       redirectToPricing({
@@ -122,11 +126,6 @@ export const MessageErrorState = ({
       });
     }
   }, [capReason, limitType, subscription]);
-
-  const isPaidUser = subscription !== "free";
-  const canUpgrade = shouldShowUpgradeCta({ subscription, capReason });
-  const extraUsageCta = getExtraUsageLimitCta({ subscription, capReason });
-  const limitType = getLimitTypeForCapReason(capReason);
   const upgradeCtaText =
     subscription === "free" &&
     (limitType === "daily_requests" || limitType === "free_monthly")
